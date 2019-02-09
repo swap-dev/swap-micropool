@@ -1,0 +1,20 @@
+{
+  "name": "swap-micropool",
+  "version": "1.0.0",
+  "license": "0BSD",
+  "authors": "sebseb7",
+  "main": "proxy.js",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/swap-dev/swap-micropool.git"
+  },
+  "dependencies": {
+    "cryptoforknote-util": "https://github.com/swap-dev/node-cryptoforknote-util.git",
+    "cuckaroo29s-hashing": "https://github.com/swap-dev/node-cuckaroo29s-hashing.git",
+    "winston": "*",
+    "bignum": "*"
+  },
+  "engines": {
+    "node": ">=8"
+  }
+}
