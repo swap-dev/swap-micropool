@@ -144,10 +144,7 @@ function checkheight()
 
 		if(curr_height != result.count)
 		{
-			console.log(curr_height+':'+result.count);
 			updateJob('height_change');
-		}else{
-			checklasthash();
 		}
 	});
 };
@@ -166,8 +163,8 @@ function checklasthash()
 	});
 }
 
-setInterval(function(){ updateJob('timer')}, 1000);
-setInterval(function(){ checkheight()}, 50);
+setInterval(function(){ checkheight()}, 250);
+setInterval(function(){ checklasthash()}, 1000);
 
 function uid(){
 	var min = 100000000000000;
