@@ -64,11 +64,19 @@ const cu = require('cuckaroo29s-hashing');
 const cnUtil = require('cryptoforknote-util');
 const bignum = require('bignum');
 
-const logger = new (winston.Logger)({
-	transports: [
-		new winston.transports.Console({timestamp:(new Date()).toLocaleTimeString(),colorize:true,level:'info'}),
-		new winston.transports.File({name:'a',json:false,filename:'logfile.txt',timestamp:(new Date()).toLocaleTimeString(),level:'info'}),
-	]
+const logger = winston.createLogger({
+  level: 'debug',
+  format: winston.format.combine(
+    winston.format.timestamp(),
+    winston.format.colorize(),
+    winston.format.splat(),
+    winston.format.simple(),
+    winston.format.printf(msg => `${msg.timestamp} - ${msg.level}: ${msg.message}`)
+  ),
+  transports: [
+    new winston.transports.Console(),
+  ]
+
 });
 
 process.on("uncaughtException", function(error) {
