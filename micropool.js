@@ -85,17 +85,24 @@ process.on("uncaughtException", function(error) {
 
 const localport = 14650;
 
-function getBlockTemplate(callback){
-	rpc('127.0.0.1',39950,'getblocktemplate', {reserve_size: 8, wallet_address: 'fh44kXjeXWoEw6CmMLbEWaUgdKwPxz4ptD1QJg926g43XQq3JSRkEJoBYtRZDFaFxm1SzaJXteZCLaAdTBYpmVmB1buPJk1mZ'}, callback);
-}
-	
 var target = 0;
-var curr_height=0;
+var curr_height=1;
 var current_blocktemplate = "";
 var current_prevhash = "";
 var connectedMiners = {};
 
-function updateJob()
+function getBlockTemplate(callback){
+	rpc('127.0.0.1',39950,'getblocktemplate', {reserve_size: 8, wallet_address: 'fh44kXjeXWoEw6CmMLbEWaUgdKwPxz4ptD1QJg926g43XQq3JSRkEJoBYtRZDFaFxm1SzaJXteZCLaAdTBYpmVmB1buPJk1mZ'}, callback);
+}
+function getHeight(callback){
+	rpc('127.0.0.1',39950,'getblockcount', null, callback);
+}
+function getBlockHash(callback){
+	rpc('127.0.0.1',39950,'on_getblockhash', [curr_height - 1], callback);
+}
+	
+
+function updateJob(reason)
 {
 	getBlockTemplate(function(error, result){
 		if(error) {
@@ -115,7 +122,7 @@ function updateJob()
 			target = result.difficulty;
 			curr_height=result.height;
 		
-			logger.info('New block to mine at height %d w/ difficulty of %d', result.height, result.difficulty);
+			logger.info('New block to mine at height %d w/ difficulty of %d (triggered by: %s)', result.height, result.difficulty, reason);
 		
 			for (var minerId in connectedMiners)
 			{
@@ -126,8 +133,41 @@ function updateJob()
 		}
 	});
 };
+function checkheight()
+{
+	getHeight(function(error, result){
+		if(error) {
+			console.log(error);
+			console.log(result);
+			return;
+		}
 
-setInterval(function(){ updateJob()}, 200);
+		if(curr_height != result.count)
+		{
+			console.log(curr_height+':'+result.count);
+			updateJob('height_change');
+		}else{
+			checklasthash();
+		}
+	});
+};
+
+function checklasthash()
+{
+	getBlockTemplate(function(error, result){
+		if(error) {
+			console.log(error);
+			console.log(result);
+			return;
+		}
+		if(result.prev_hash != current_prevhash) {
+			updateJob('lasthash updated');
+		}
+	});
+}
+
+setInterval(function(){ updateJob('timer')}, 1000);
+setInterval(function(){ checkheight()}, 50);
 
 function uid(){
 	var min = 100000000000000;
@@ -197,7 +237,7 @@ function handleClient(data,miner){
 			{
 				logger.info('share ('+miner.login+') '+jobdiff+' / '+target+' (block)');
 				rpc('127.0.0.1',39950,'submitblock', [shareBuffer.toString('hex')], function(error, result){
-					updateJob();
+					updateJob('found block');
 				});
 			}else{
 				logger.info('share ('+miner.login+') '+jobdiff+' / '+target);
@@ -221,8 +261,7 @@ var server = net.createServer(function (localsocket) {
 });
 
 var server2 = net.createServer(function (localsocket) {
-	logger.info('job reload triggered');
-	updateJob();
+	updateJob('external');
 });
 
 server.listen(localport);
@@ -230,5 +269,5 @@ server2.listen(14651);
 
 logger.info("start cuckaroo29s micropool on trill.seb.green, port %d (no tls)", localport);
 
-updateJob();
+updateJob('init');
 
