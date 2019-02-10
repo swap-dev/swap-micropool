@@ -118,7 +118,7 @@ function updateJob(reason)
 		Buffer.from(result.blocktemplate_blob, 'hex').copy(previous_hash_buf,0,7,39);;
 		var previous_hash = previous_hash_buf.toString('hex');
 		
-		if(Buffer.from(result.blocktemplate_blob, 'hex')[0] == 10){ current_fork=7 }else{ current_fork = 0 };
+		if(Buffer.from(result.blocktemplate_blob, 'hex')[0] >= 10){ current_fork=7 }else{ current_fork = 0 };
 
 		if(previous_hash != current_prevhash)
 		{
@@ -132,7 +132,7 @@ function updateJob(reason)
 			for (var minerId in connectedMiners)
 			{
 				var miner = connectedMiners[minerId];
-				var response2 = '{"id":"Stratum","jsonrpc":"2.0","method":"getjobtemplate","result":{"difficulty":1,"height":'+curr_height+',"job_id":0,"pre_pow":"'+ cnUtil.convert_blob(Buffer.from(current_blocktemplate, 'hex'),current_fork).toString('hex') +'"},"error":null}';
+				var response2 = '{"id":"Stratum","jsonrpc":"2.0","method":"getjobtemplate","result":{"difficulty":'+miner.difficulty+',"height":'+curr_height+',"job_id":0,"pre_pow":"'+ cnUtil.convert_blob(Buffer.from(current_blocktemplate, 'hex'),current_fork).toString('hex') +'"},"error":null}';
 				miner.socket.write(response2+"\n");
 			}
 		}
@@ -181,6 +181,7 @@ function uid(){
 function Miner(id,socket){
 	this.socket = socket;
 	this.login = '';
+	this.difficulty = 1;
 	this.id = id;
 	
 	var client = this;
@@ -209,8 +210,15 @@ function handleClient(data,miner){
 
 	if(request && request.method && request.method == "login")
 	{
-		logger.info('miner connect '+request.params.login+' ('+request.params.agent+')');
 		miner.login=request.params.login;
+		var fixedDiff = miner.login.indexOf('.');
+		if(fixedDiff != -1) {
+			miner.difficulty = miner.login.substr(fixedDiff + 1);
+			if(miner.difficulty < 1) miner.difficulty = 1;
+			if(isNaN(miner.difficulty)) miner.difficulty = 1;
+			miner.login = miner.login.substr(0, fixedDiff);
+		}
+		logger.info('miner connect '+request.params.login+' ('+request.params.agent+') ('+miner.difficulty+')');
 		response = '{"id":"Stratum","jsonrpc":"2.0","method":"login","result":"ok","error":null}';
 	}
 	else if(request && request.method && request.method == "submit")
@@ -228,7 +236,7 @@ function handleClient(data,miner){
 		{
 			logger.info('outdated');
 			response = '{"id":"Stratum","jsonrpc":"2.0","method":"submit","result":null,"error":{code: -32503, message: "outdated"}}';
-			response  = response+"\n"+'{"id":"Stratum","jsonrpc":"2.0","method":"getjobtemplate","result":{"difficulty":1,"height":'+curr_height+',"job_id":0,"pre_pow":"'+ cnUtil.convert_blob(Buffer.from(current_blocktemplate, 'hex'),current_fork).toString('hex') +'"},"error":null}';
+			response  = response+"\n"+'{"id":"Stratum","jsonrpc":"2.0","method":"getjobtemplate","result":{"difficulty":'+miner.difficulty+',"height":'+curr_height+',"job_id":0,"pre_pow":"'+ cnUtil.convert_blob(Buffer.from(current_blocktemplate, 'hex'),current_fork).toString('hex') +'"},"error":null}';
 		}
 		else if(proof)
 		{
@@ -256,7 +264,7 @@ function handleClient(data,miner){
 		}
 		
 	}else{
-		response = '{"id":"Stratum","jsonrpc":"2.0","method":"getjobtemplate","result":{"difficulty":1,"height":'+curr_height+',"job_id":0,"pre_pow":"'+ cnUtil.convert_blob(Buffer.from(current_blocktemplate, 'hex'),current_fork).toString('hex') +'"},"error":null}';
+		response = '{"id":"Stratum","jsonrpc":"2.0","method":"getjobtemplate","result":{"difficulty":'+miner.difficulty+',"height":'+curr_height+',"job_id":0,"pre_pow":"'+ cnUtil.convert_blob(Buffer.from(current_blocktemplate, 'hex'),current_fork).toString('hex') +'"},"error":null}';
 	
 	}
 
