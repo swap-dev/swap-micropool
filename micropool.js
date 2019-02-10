@@ -306,7 +306,7 @@ function handleClient(data,miner){
 
 			logger.info('outdated');
 			response = '{"id":"Stratum","jsonrpc":"2.0","method":"submit","result":null,"error":{code: -32503, message: "outdated"}}';
-			response  = response+"\n"+'{"id":"Stratum","jsonrpc":"2.0","method":"getjobtemplate","result":{"difficulty":'+miner.difficulty+',"height":'+curr_height+',"job_id":0,"pre_pow":"'+ cnUtil.convert_blob(Buffer.from(current_blocktemplate, 'hex'),current_fork).toString('hex') +'"},"error":null}';
+			response  = response+"\n"+'{"id":"Stratum","jsonrpc":"2.0","method":"getjobtemplate","result":{"difficulty":'+miner.difficulty+',"height":'+curr_height+',"job_id":0,"pre_pow":"'+ cnUtil.convert_blob(Buffer.from(miner.current_blocktemplate, 'hex'),current_fork).toString('hex') +'"},"error":null}';
 		}
 		else if(proof){
 
