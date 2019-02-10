@@ -3,7 +3,7 @@
 *	Solo Stratum Mining Pool for Swap 2.0
 *
 *	Cuckaroo29s hashing
-*	static difficutly (seperated by '.' in login)
+*	static difficulty (seperated by '.' in login)
 *
 *****************************************************/
 
@@ -120,7 +120,7 @@ function rpc(method, params, callback){
 }
 
 function getBlockTemplate(callback){
-	rpc('getblocktemplate', {reserve_size: 0, wallet_address: config.mining_address}, callback);
+	rpc('getblocktemplate', {reserve_size: 4, wallet_address: config.mining_address}, callback);
 }
 
 function getHeight(callback){
@@ -136,14 +136,43 @@ var curr_height=1;
 var current_blob = "";
 var current_fork=0;
 var current_prevhash = "";
+var current_reserveOffset = 0;
 var connectedMiners = {};
 
-function get_blob(minerId)
-{
-	return current_blob;
+function get_blob(minerId){
+
+	var blob = Buffer.from(current_blob,'hex');
+
+	if(current_reserveOffset) {
+	
+		var jobid = Buffer.from(seq(),'hex');
+		jobid.copy(blob, current_reserveOffset, 0, 3);
+	}
+	
+	return blob.toString('hex');
 }
 
-function updateJob(reason){
+function nonceCheck(miner,nonce) {
+
+	if (miner.nonces.indexOf(nonce) !== -1) return false;
+
+	miner.nonces.push(nonce);
+
+	return true;
+}
+
+function hashrate(miner) {
+
+	miner.shares += miner.difficulty|0;
+
+	var hr = miner.shares*32/((Date.now()/1000|0)-miner.begin);
+
+	return 'rig:'+miner.pass+' '+hr.toFixed(2)+' gps';
+
+}
+
+
+function updateJob(reason,callback){
 
 	getBlockTemplate(function(error, result){
 		if(error) {
@@ -164,16 +193,19 @@ function updateJob(reason){
 			target = result.difficulty;
 			current_blob = result.blocktemplate_blob;
 			curr_height=result.height;
-		
+			current_reserveOffset = result.reserved_offset;
+
 			logger.info('New block to mine at height %d w/ difficulty of %d (triggered by: %s)', result.height, result.difficulty, reason);
 		
 			for (var minerId in connectedMiners){
 				var miner = connectedMiners[minerId];
 				miner.current_blocktemplate = get_blob(minerId);
+				miner.nonces = [];
 				var response2 = '{"id":"Stratum","jsonrpc":"2.0","method":"getjobtemplate","result":{"difficulty":'+miner.difficulty+',"height":'+curr_height+',"job_id":0,"pre_pow":"'+ cnUtil.convert_blob(Buffer.from(miner.current_blocktemplate, 'hex'),current_fork).toString('hex') +'"},"error":null}';
 				miner.socket.write(response2+"\n");
 			}
 		}
+		if(callback) callback();
 	});
 }
 
@@ -212,8 +244,12 @@ setInterval(function(){ checklasthash()}, 1000);
 function Miner(id,socket){
 	this.socket = socket;
 	this.login = '';
+	this.pass = '';
+	this.begin = Date.now()/1000|0;
+	this.shares = 0;
 	this.difficulty = 1;
 	this.id = id;
+	this.nonces = [];
 	this.current_blocktemplate = get_blob(id);
 	
 	var client = this;
@@ -224,7 +260,7 @@ function Miner(id,socket){
 	});
 	
 	socket.on('close', function(had_error) {
-		logger.info('miner con dropped '+client.id);
+		logger.info('miner connction dropped '+client.login);
 		delete connectedMiners[client.id];
 	});
 
@@ -235,7 +271,7 @@ function Miner(id,socket){
 	
 function handleClient(data,miner){
 	
-	var request = JSON.parse(data.replace(/([0-9]{15,30})/g, '"$1"'));//long numbers in quotes, js json can't handle 64bit ints, nonce is 64bit
+	var request = JSON.parse(data.replace(/([0-9]{15,30})/g, '"$1"'));//puts all long numbers in quotes, js can't handle 64bit ints
 	
 	logger.debug("m->p "+JSON.stringify(request));
 
@@ -244,6 +280,7 @@ function handleClient(data,miner){
 	if(request && request.method && request.method == "login") {
 
 		miner.login=request.params.login;
+		miner.pass =request.params.pass;
 		var fixedDiff = miner.login.indexOf('.');
 		if(fixedDiff != -1) {
 			miner.difficulty = miner.login.substr(fixedDiff + 1);
@@ -266,25 +303,33 @@ function handleClient(data,miner){
 		}
 			
 		if(curr_height != request.params.height){
+
 			logger.info('outdated');
 			response = '{"id":"Stratum","jsonrpc":"2.0","method":"submit","result":null,"error":{code: -32503, message: "outdated"}}';
 			response  = response+"\n"+'{"id":"Stratum","jsonrpc":"2.0","method":"getjobtemplate","result":{"difficulty":'+miner.difficulty+',"height":'+curr_height+',"job_id":0,"pre_pow":"'+ cnUtil.convert_blob(Buffer.from(current_blocktemplate, 'hex'),current_fork).toString('hex') +'"},"error":null}';
 		}
 		else if(proof){
+
 			logger.info('wrong hash ('+miner.login+') '+proof);
 			response = '{"id":"Stratum","jsonrpc":"2.0","method":"submit","result":null,"error":{code: -32502, message: "wrong hash"}}';
+		
+		} 
+		else if(! nonceCheck(miner,request.params.nonce)) {
+		
+			logger.info('duplicate ('+miner.login+')');
+			response = '{"id":"Stratum","jsonrpc":"2.0","method":"submit","result":null,"error":{code: -32503, message: "duplicate"}}';
+		
 		}
 		else{
 		
-			var shareBuffer = cnUtil.construct_block_blob(Buffer.from(miner.current_blocktemplate, 'hex'), bignum(request.params.nonce,10).toBuffer({endian : 'little',size : 4}),current_fork,request.params.pow);
-
 			var jobdiff = cu.getdifficultyfromhash(cu.cycle_hash(request.params.pow));
 
 			if(jobdiff >= target) {
 				
 				response = '{"id":"Stratum","jsonrpc":"2.0","method":"submit","result":"blockfound","error":null}';
-				logger.info('share ('+miner.login+') '+jobdiff+' / '+target+' (block)');
+				logger.info('share ('+miner.login+') '+jobdiff+' / '+target+' (block) ('+hashrate(miner)+')');
 				
+				var shareBuffer = cnUtil.construct_block_blob(Buffer.from(miner.current_blocktemplate, 'hex'), bignum(request.params.nonce,10).toBuffer({endian : 'little',size : 4}),current_fork,request.params.pow);
 				rpc('submitblock', [shareBuffer.toString('hex')], function(error, result){
 					updateJob('found block');
 				});
@@ -292,7 +337,7 @@ function handleClient(data,miner){
 			else if(jobdiff >= miner.difficulty) {
 				
 				response = '{"id":"Stratum","jsonrpc":"2.0","method":"submit","result":"ok","error":null}';
-				logger.info('share ('+miner.login+') '+jobdiff+' / '+target);
+				logger.info('share ('+miner.login+') '+jobdiff+' / '+target+' ('+hashrate(miner)+')');
 			
 			}
 			else{
@@ -317,16 +362,17 @@ var server = net.createServer(function (localsocket) {
 	var miner = new Miner(minerId,localsocket);
 	connectedMiners[minerId] = miner;
 });
+server.timeout = 0;
 
 var ctrl_server = net.createServer(function (localsocket) {
 	updateJob('ctrlport');
 });
-
-server.timeout = 0;
-server.listen(config.poolport);
 ctrl_server.listen(config.ctrlport,'127.0.0.1');
 
-logger.info("start swap micropool, port %d", config.poolport);
+updateJob('init',function(){
 
-updateJob('init');
+	server.listen(config.poolport);
+	logger.info("start swap micropool, port %d", config.poolport);
+
+});
 
