@@ -1,110 +1,150 @@
-var http = require('http');
-var https = require('https');
+/****************************************************
+*
+*	Solo Stratum Mining Pool for Swap 2.0
+*
+*	Cuckaroo29s hashing
+*	static difficutly (seperated by '.' in login)
+*
+*****************************************************/
 
-function jsonHttpRequest(host, port, data, callback, path){
-    path = path || '/json_rpc';
+var config = { 
 
-    var options = {
-        hostname: host,
-        port: port,
-        path: path,
-        method: data ? 'POST' : 'GET',
-        headers: {
-            'Content-Length': data.length,
-            'Content-Type': 'application/json',
-            'Accept': 'application/json'
-        }
-    };
+	poolport:14650, 
+	ctrlport:14651,
 
-    var req = (port == 443 ? https : http).request(options, function(res){
-        var replyData = '';
-        res.setEncoding('utf8');
-        res.on('data', function(chunk){
-            replyData += chunk;
-        });
-        res.on('end', function(){
-            var replyJson;
-            try{
-                replyJson = JSON.parse(replyData);
-            }
-            catch(e){
-                callback(e);
-                return;
-            }
-            callback(null, replyJson);
-        });
-    });
+	daemonport:39950,
+	daemonhost:'127.0.0.1',
 
-    req.on('error', function(e){
-        callback(e);
-    });
+	mining_address:'fh44kXjeXWoEw6CmMLbEWaUgdKwPxz4ptD1QJg926g43XQq3JSRkEJoBYtRZDFaFxm1SzaJXteZCLaAdTBYpmVmB1buPJk1mZ'
 
-    req.end(data);
-}
-function rpc(host, port, method, params, callback){
+};
 
-    var data = JSON.stringify({
-        id: "0",
-        jsonrpc: "2.0",
-        method: method,
-        params: params
-    });
-    jsonHttpRequest(host, port, data, function(error, replyJson){
-        if (error){
-            callback(error);
-            return;
-        }
-        callback(replyJson.error, replyJson.result)
-    });
-}
-
+const http = require('http');
+const https = require('https');
 const net = require("net");
 const winston = require('winston');
 const cu = require('cuckaroo29s-hashing');
 const cnUtil = require('cryptoforknote-util');
 const bignum = require('bignum');
+const crypto = require('crypto');
+
+const seed = Math.random();
+const p = bignum(4294967291);
+function permute(x)
+{
+	if (x.ge(p)) return x;
+	var r = x.mul(x).mod(p);
+	return (x.le(p.div(2)))?r:p.sub(r);
+}
+var state=bignum(seed);
+function seq()
+{
+	state = permute(permute(state).add(seed).xor(1542469173));
+	return state.toBuffer({size:4}).toString('hex');
+}
+const inctanceid = seq();
 
 const logger = winston.createLogger({
-  level: 'info',
-  format: winston.format.combine(
-    winston.format.timestamp(),
-    winston.format.colorize(),
-    winston.format.splat(),
-    winston.format.simple(),
-    winston.format.printf(msg => `${msg.timestamp} - ${msg.level}: ${msg.message}`)
-  ),
-  transports: [
-    new winston.transports.Console(),
-  ]
-
+	level: 'info',
+	format: winston.format.combine(
+		winston.format.timestamp(),
+		winston.format.colorize(),
+		winston.format.splat(),
+		winston.format.printf(msg => `${msg.timestamp} - ${msg.level}: ${msg.message}`)
+	),
+	transports: [
+		new winston.transports.Console(),
+	]
 });
 
 process.on("uncaughtException", function(error) {
 	logger.error(error);
 });
 
-const localport = 14650;
+function jsonHttpRequest(host, port, data, callback, path){
+	path = path || '/json_rpc';
 
+	var options = {
+		hostname: host,
+		port: port,
+		path: path,
+		method: data ? 'POST' : 'GET',
+		headers: {
+			'Content-Length': data.length,
+			'Content-Type': 'application/json',
+			'Accept': 'application/json'
+		}
+	};
+
+	var req = (port == 443 ? https : http).request(options, function(res){
+		var replyData = '';
+		res.setEncoding('utf8');
+		res.on('data', function(chunk){
+			replyData += chunk;
+		});
+		res.on('end', function(){
+			var replyJson;
+			try{
+				replyJson = JSON.parse(replyData);
+			}
+			catch(e){
+				callback(e);
+				return;
+			}
+			callback(null, replyJson);
+		});
+	});
+
+	req.on('error', function(e){
+		callback(e);
+	});
+
+	req.end(data);
+}
+
+function rpc(method, params, callback){
+
+	var data = JSON.stringify({
+		id: "0",
+		jsonrpc: "2.0",
+		method: method,
+		params: params
+	});
+	jsonHttpRequest(config.daemonhost, config.daemonport, data, function(error, replyJson){
+		if (error){
+			callback(error);
+			return;
+		}
+		callback(replyJson.error, replyJson.result)
+	});
+}
+
+function getBlockTemplate(callback){
+	rpc('getblocktemplate', {reserve_size: 0, wallet_address: config.mining_address}, callback);
+}
+
+function getHeight(callback){
+	rpc('getblockcount', null, callback);
+}
+
+function getBlockHash(callback){
+	rpc('on_getblockhash', [curr_height - 1], callback);
+}
+	
 var target = 0;
 var curr_height=1;
+var current_blob = "";
 var current_fork=0;
-var current_blocktemplate = "";
 var current_prevhash = "";
 var connectedMiners = {};
 
-function getBlockTemplate(callback){
-	rpc('127.0.0.1',39950,'getblocktemplate', {reserve_size: 8, wallet_address: 'fh44kXjeXWoEw6CmMLbEWaUgdKwPxz4ptD1QJg926g43XQq3JSRkEJoBYtRZDFaFxm1SzaJXteZCLaAdTBYpmVmB1buPJk1mZ'}, callback);
-}
-function getHeight(callback){
-	rpc('127.0.0.1',39950,'getblockcount', null, callback);
-}
-function getBlockHash(callback){
-	rpc('127.0.0.1',39950,'on_getblockhash', [curr_height - 1], callback);
-}
-	
-
-function updateJob(reason)
+function get_blob(minerId)
 {
+	return current_blob;
+}
+
+function updateJob(reason){
+
 	getBlockTemplate(function(error, result){
 		if(error) {
 			console.log(error);
@@ -112,34 +152,33 @@ function updateJob(reason)
 			return;
 		}
 
-
-
 		var previous_hash_buf = Buffer.alloc(32);
 		Buffer.from(result.blocktemplate_blob, 'hex').copy(previous_hash_buf,0,7,39);;
 		var previous_hash = previous_hash_buf.toString('hex');
 		
 		if(Buffer.from(result.blocktemplate_blob, 'hex')[0] >= 10){ current_fork=7 }else{ current_fork = 0 };
 
-		if(previous_hash != current_prevhash)
-		{
+		if(previous_hash != current_prevhash){
+
 			current_prevhash = previous_hash;
-			current_blocktemplate = result.blocktemplate_blob;
 			target = result.difficulty;
+			current_blob = result.blocktemplate_blob;
 			curr_height=result.height;
 		
 			logger.info('New block to mine at height %d w/ difficulty of %d (triggered by: %s)', result.height, result.difficulty, reason);
 		
-			for (var minerId in connectedMiners)
-			{
+			for (var minerId in connectedMiners){
 				var miner = connectedMiners[minerId];
-				var response2 = '{"id":"Stratum","jsonrpc":"2.0","method":"getjobtemplate","result":{"difficulty":'+miner.difficulty+',"height":'+curr_height+',"job_id":0,"pre_pow":"'+ cnUtil.convert_blob(Buffer.from(current_blocktemplate, 'hex'),current_fork).toString('hex') +'"},"error":null}';
+				miner.current_blocktemplate = get_blob(minerId);
+				var response2 = '{"id":"Stratum","jsonrpc":"2.0","method":"getjobtemplate","result":{"difficulty":'+miner.difficulty+',"height":'+curr_height+',"job_id":0,"pre_pow":"'+ cnUtil.convert_blob(Buffer.from(miner.current_blocktemplate, 'hex'),current_fork).toString('hex') +'"},"error":null}';
 				miner.socket.write(response2+"\n");
 			}
 		}
 	});
-};
-function checkheight()
-{
+}
+
+function checkheight() {
+
 	getHeight(function(error, result){
 		if(error) {
 			console.log(error);
@@ -147,15 +186,14 @@ function checkheight()
 			return;
 		}
 
-		if(curr_height != result.count)
-		{
+		if(curr_height != result.count){
 			updateJob('height_change');
 		}
 	});
-};
+}
 
-function checklasthash()
-{
+function checklasthash() {
+
 	getBlockTemplate(function(error, result){
 		if(error) {
 			console.log(error);
@@ -171,18 +209,12 @@ function checklasthash()
 setInterval(function(){ checkheight()}, 250);
 setInterval(function(){ checklasthash()}, 1000);
 
-function uid(){
-	var min = 100000000000000;
-	var max = 999999999999999;
-	var id = Math.floor(Math.random() * (max - min + 1)) + min;
-	return id.toString();
-};
-
 function Miner(id,socket){
 	this.socket = socket;
 	this.login = '';
 	this.difficulty = 1;
 	this.id = id;
+	this.current_blocktemplate = get_blob(id);
 	
 	var client = this;
 	
@@ -195,6 +227,7 @@ function Miner(id,socket){
 		logger.info('miner con dropped '+client.id);
 		delete connectedMiners[client.id];
 	});
+
 	socket.on('error', function(had_error) {
 		socket.end();
 	});
@@ -208,8 +241,8 @@ function handleClient(data,miner){
 
 	var response;
 
-	if(request && request.method && request.method == "login")
-	{
+	if(request && request.method && request.method == "login") {
+
 		miner.login=request.params.login;
 		var fixedDiff = miner.login.indexOf('.');
 		if(fixedDiff != -1) {
@@ -221,50 +254,56 @@ function handleClient(data,miner){
 		logger.info('miner connect '+request.params.login+' ('+request.params.agent+') ('+miner.difficulty+')');
 		response = '{"id":"Stratum","jsonrpc":"2.0","method":"login","result":"ok","error":null}';
 	}
-	else if(request && request.method && request.method == "submit")
-	{
+	else if(request && request.method && request.method == "submit") {
+
 		var proof;
-		if (current_fork==7)
-		{
-			var header =  Buffer.concat([cnUtil.convert_blob(Buffer.from(current_blocktemplate, 'hex'),current_fork),bignum(request.params.nonce,10).toBuffer({endian : 'big',size : 4})]);
+		if (current_fork==7){
+			var header =  Buffer.concat([cnUtil.convert_blob(Buffer.from(miner.current_blocktemplate, 'hex'),current_fork),bignum(request.params.nonce,10).toBuffer({endian : 'big',size : 4})]);
 			proof = cu.cuckaroo29s(header,request.params.pow);
-		}else{
+		}
+		else{
 			logger.error('swap1 not supported');
 		}
 			
-		if(curr_height != request.params.height)
-		{
+		if(curr_height != request.params.height){
 			logger.info('outdated');
 			response = '{"id":"Stratum","jsonrpc":"2.0","method":"submit","result":null,"error":{code: -32503, message: "outdated"}}';
 			response  = response+"\n"+'{"id":"Stratum","jsonrpc":"2.0","method":"getjobtemplate","result":{"difficulty":'+miner.difficulty+',"height":'+curr_height+',"job_id":0,"pre_pow":"'+ cnUtil.convert_blob(Buffer.from(current_blocktemplate, 'hex'),current_fork).toString('hex') +'"},"error":null}';
 		}
-		else if(proof)
-		{
+		else if(proof){
 			logger.info('wrong hash ('+miner.login+') '+proof);
 			response = '{"id":"Stratum","jsonrpc":"2.0","method":"submit","result":null,"error":{code: -32502, message: "wrong hash"}}';
 		}
-		else
-		{
+		else{
 		
-			var shareBuffer = cnUtil.construct_block_blob(Buffer.from(current_blocktemplate, 'hex'), bignum(request.params.nonce,10).toBuffer({endian : 'little',size : 4}),current_fork,request.params.pow);
+			var shareBuffer = cnUtil.construct_block_blob(Buffer.from(miner.current_blocktemplate, 'hex'), bignum(request.params.nonce,10).toBuffer({endian : 'little',size : 4}),current_fork,request.params.pow);
 
 			var jobdiff = cu.getdifficultyfromhash(cu.cycle_hash(request.params.pow));
 
-			if(jobdiff >= target)
-			{
+			if(jobdiff >= target) {
+				
 				response = '{"id":"Stratum","jsonrpc":"2.0","method":"submit","result":"blockfound","error":null}';
 				logger.info('share ('+miner.login+') '+jobdiff+' / '+target+' (block)');
-				rpc('127.0.0.1',39950,'submitblock', [shareBuffer.toString('hex')], function(error, result){
+				
+				rpc('submitblock', [shareBuffer.toString('hex')], function(error, result){
 					updateJob('found block');
 				});
-			}else{
+			}
+			else if(jobdiff >= miner.difficulty) {
+				
 				response = '{"id":"Stratum","jsonrpc":"2.0","method":"submit","result":"ok","error":null}';
 				logger.info('share ('+miner.login+') '+jobdiff+' / '+target);
+			
+			}
+			else{
+
+				response = '{"id":"Stratum","jsonrpc":"2.0","method":"submit","result":null,"error":{code: -32501, message: "low diff"}}';
+				logger.info('low diff ('+miner.login+') '+jobdiff+' / '+miner.difficulty);
 			}
 		}
 		
 	}else{
-		response = '{"id":"Stratum","jsonrpc":"2.0","method":"getjobtemplate","result":{"difficulty":'+miner.difficulty+',"height":'+curr_height+',"job_id":0,"pre_pow":"'+ cnUtil.convert_blob(Buffer.from(current_blocktemplate, 'hex'),current_fork).toString('hex') +'"},"error":null}';
+		response = '{"id":"Stratum","jsonrpc":"2.0","method":"getjobtemplate","result":{"difficulty":'+miner.difficulty+',"height":'+curr_height+',"job_id":0,"pre_pow":"'+ cnUtil.convert_blob(Buffer.from(miner.current_blocktemplate, 'hex'),current_fork).toString('hex') +'"},"error":null}';
 	
 	}
 
@@ -274,20 +313,20 @@ function handleClient(data,miner){
 
 var server = net.createServer(function (localsocket) {
 
-	var minerId = uid();
+	var minerId = seq();
 	var miner = new Miner(minerId,localsocket);
 	connectedMiners[minerId] = miner;
 });
 
-var server2 = net.createServer(function (localsocket) {
-	updateJob('external');
+var ctrl_server = net.createServer(function (localsocket) {
+	updateJob('ctrlport');
 });
 
 server.timeout = 0;
-server.listen(localport);
-server2.listen(14651);
+server.listen(config.poolport);
+ctrl_server.listen(config.ctrlport,'127.0.0.1');
 
-logger.info("start cuckaroo29s micropool on trill.seb.green, port %d (no tls)", localport);
+logger.info("start swap micropool, port %d", config.poolport);
 
 updateJob('init');
 
