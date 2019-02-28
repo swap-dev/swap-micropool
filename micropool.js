@@ -318,7 +318,7 @@ function handleClient(data,miner){
 		
 			if(check_diff(current_target,cycle)) {
 				
-				response = '{"id":"Stratum","jsonrpc":"2.0","method":"submit","result":"blockfound","error":null}';
+				response = '{"id":"Stratum","jsonrpc":"2.0","method":"submit","result":"ok","error":null}';
 				logger.info('share ('+miner.login+') '+current_target+' (block) ('+hashrate(miner)+')');
 				
 				var block = Buffer.from(current_blob, 'hex');
