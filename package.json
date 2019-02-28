@@ -9,9 +9,7 @@
     "url": "https://github.com/swap-dev/swap-micropool.git"
   },
   "dependencies": {
-    "cryptoforknote-util": "https://github.com/swap-dev/node-cryptoforknote-util.git",
-    "winston": "*",
-    "bignum": "*"
+    "winston": "*"
   },
   "engines": {
     "node": ">=8"
