@@ -12,9 +12,11 @@ var config = {
 	poolport:14650, 
 	ctrlport:14651,
 
+	//daemonport:29950,
 	daemonport:39950,
 	daemonhost:'127.0.0.1',
 
+	//mining_address:'TNzeY8RbHbKZbdAiXbfXtLUGV7SrKjBDBVJ6HoiwbospS3zUApfp2QLPbcGzQfADLaTVCYfK8sFEFgkfV6tj2yUv3qj1UepJqh',
 	mining_address:'fh44kXjeXWoEw6CmMLbEWaUgdKwPxz4ptD1QJg926g43XQq3JSRkEJoBYtRZDFaFxm1SzaJXteZCLaAdTBYpmVmB1buPJk1mZ'
 
 };
@@ -23,10 +25,12 @@ const http = require('http');
 const https = require('https');
 const net = require("net");
 const winston = require('winston');
-const cu = require('cuckaroo29s-hashing');
 const cnUtil = require('cryptoforknote-util');
 const bignum = require('bignum');
 const crypto = require('crypto');
+const c29s = require('./c29s.js');
+const verify_c29s = c29s.cwrap('c29s_verify', 'number', ['array','number','array']);
+const check_diff = c29s.cwrap('check_diff', 'number', ['number','array']);
 
 const seed = Math.random();
 const p = bignum(4294967291);
@@ -296,7 +300,13 @@ function handleClient(data,miner){
 		var proof;
 		if (current_fork==7){
 			var header =  Buffer.concat([cnUtil.convert_blob(Buffer.from(miner.current_blocktemplate, 'hex'),current_fork),bignum(request.params.nonce,10).toBuffer({endian : 'big',size : 4})]);
-			proof = cu.cuckaroo29s(header,request.params.pow);
+			var cycle = Buffer.alloc(32*4);
+			for(var i in request.params.pow)
+			{
+				cycle.writeInt32LE(request.params.pow[i], i*4);
+			}
+			proof = verify_c29s(header,header.length,cycle);
+
 		}
 		else{
 			logger.error('swap1 not supported');
@@ -322,28 +332,26 @@ function handleClient(data,miner){
 		}
 		else{
 		
-			var jobdiff = cu.getdifficultyfromhash(cu.cycle_hash(request.params.pow));
-
-			if(jobdiff >= target) {
+			if(check_diff(target,cycle)) {
 				
 				response = '{"id":"Stratum","jsonrpc":"2.0","method":"submit","result":"blockfound","error":null}';
-				logger.info('share ('+miner.login+') '+jobdiff+' / '+target+' (block) ('+hashrate(miner)+')');
+				logger.info('share ('+miner.login+') '+target+' (block) ('+hashrate(miner)+')');
 				
 				var shareBuffer = cnUtil.construct_block_blob(Buffer.from(miner.current_blocktemplate, 'hex'), bignum(request.params.nonce,10).toBuffer({endian : 'little',size : 4}),current_fork,request.params.pow);
 				rpc('submitblock', [shareBuffer.toString('hex')], function(error, result){
 					updateJob('found block');
 				});
 			}
-			else if(jobdiff >= miner.difficulty) {
+			else if(check_diff(miner.difficulty,cycle)) {
 				
 				response = '{"id":"Stratum","jsonrpc":"2.0","method":"submit","result":"ok","error":null}';
-				logger.info('share ('+miner.login+') '+jobdiff+' / '+target+' ('+hashrate(miner)+')');
+				logger.info('share ('+miner.login+') '+miner.difficulty+' ('+hashrate(miner)+')');
 			
 			}
 			else{
 
 				response = '{"id":"Stratum","jsonrpc":"2.0","method":"submit","result":null,"error":{code: -32501, message: "low diff"}}';
-				logger.info('low diff ('+miner.login+') '+jobdiff+' / '+miner.difficulty);
+				logger.info('low diff ('+miner.login+') '+miner.difficulty);
 			}
 		}
 		
