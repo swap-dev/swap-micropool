@@ -37,7 +37,7 @@ function seq(){
 };
 
 const logger = winston.createLogger({
-	level: 'info',
+	level: 'warn',
 	format: winston.format.combine(
 		winston.format.timestamp(),
 		winston.format.colorize(),
@@ -232,8 +232,14 @@ function Miner(id,socket){
 	var client = this;
 	
 	socket.on('data', function(input) {
-		for (var data of input.toString().trim().split("\n"))
-			handleClient(data,client);
+		try{
+			for (var data of input.toString().trim().split("\n"))
+				handleClient(data,client);
+		}
+		catch(e){
+			logger.debug("error: "+e+" on data: "+data);
+			socket.end();
+		}
 	});
 	
 	socket.on('close', function(had_error) {
@@ -248,9 +254,9 @@ function Miner(id,socket){
 	
 function handleClient(data,miner){
 	
+	logger.debug("m->p "+data);
+
 	var request = JSON.parse(data.replace(/([0-9]{15,30})/g, '"$1"'));//puts all long numbers in quotes, js can't handle 64bit ints
-	
-	logger.debug("m->p "+JSON.stringify(request));
 
 	var response;
 
