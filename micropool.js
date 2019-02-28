@@ -24,7 +24,6 @@ var config = {
 const http = require('http');
 const https = require('https');
 const net = require("net");
-const winston = require('winston');
 const c29s = require('./c29s.js');
 const verify_c29s = c29s.cwrap('c29s_verify', 'number', ['array','number','array']);
 const check_diff = c29s.cwrap('check_diff', 'number', ['number','array']);
@@ -36,18 +35,12 @@ function seq(){
 	return id.toString();
 };
 
-const logger = winston.createLogger({
-	level: 'info',
-	format: winston.format.combine(
-		winston.format.timestamp(),
-		winston.format.colorize(),
-		winston.format.splat(),
-		winston.format.printf(msg => `${msg.timestamp} - ${msg.level}: ${msg.message}`)
-	),
-	transports: [
-		new winston.transports.Console(),
-	]
-});
+function Log() {}
+Log.prototype.log = function (level,message) { console.log(new Date(Date.now()).toISOString()+' ['+level+'] '+message); }
+Log.prototype.info  = function (message) {this.log('info',message);}
+Log.prototype.error = function (message) {this.log('error',message);}
+Log.prototype.debug = function (message) {/*this.log('debug',message);*/}
+const logger = new Log();
 
 process.on("uncaughtException", function(error) {
 	logger.error(error);
@@ -171,7 +164,7 @@ function updateJob(reason,callback){
 			current_hashblob = result.blockhashing_blob;
 			current_height=result.height;
 
-			logger.info('New block to mine at height %d w/ difficulty of %d (triggered by: %s)', result.height, result.difficulty, reason);
+			logger.info('New block to mine at height '+result.height+' w/ difficulty of '+result.difficulty+' (triggered by: '+reason+')');
 		
 			for (var minerId in connectedMiners){
 				var miner = connectedMiners[minerId];
@@ -359,7 +352,7 @@ ctrl_server.listen(config.ctrlport,'127.0.0.1');
 updateJob('init',function(){
 
 	server.listen(config.poolport);
-	logger.info("start swap micropool, port %d", config.poolport);
+	logger.info("start swap micropool, port "+config.poolport);
 
 });
 

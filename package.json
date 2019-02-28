@@ -9,7 +9,6 @@
     "url": "https://github.com/swap-dev/swap-micropool.git"
   },
   "dependencies": {
-    "winston": "*"
   },
   "engines": {
     "node": ">=8"
