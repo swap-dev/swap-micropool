@@ -245,6 +245,7 @@ function Miner(id,socket){
 	socket.on('close', function(had_error) {
 		logger.info('miner connction dropped '+client.login);
 		delete connectedMiners[client.id];
+		socket.end();
 	});
 
 	socket.on('error', function(had_error) {
