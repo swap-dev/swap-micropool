@@ -108,14 +108,6 @@ function getBlockTemplate(callback){
 	rpc('getblocktemplate', {reserve_size: 0, wallet_address: config.mining_address}, callback);
 }
 
-function getHeight(callback){
-	rpc('getblockcount', null, callback);
-}
-
-function getBlockHash(callback){
-	rpc('on_getblockhash', [current_height - 1], callback);
-}
-	
 var current_target   = 0;
 var current_height   = 1;
 var current_blob     = "";
@@ -177,38 +169,6 @@ function updateJob(reason,callback){
 	});
 }
 
-function checkheight() {
-
-	getHeight(function(error, result){
-		if(error) {
-			console.log(error);
-			console.log(result);
-			return;
-		}
-
-		if(current_height != result.count){
-			updateJob('height_change');
-		}
-	});
-}
-
-function checklasthash() {
-
-	getBlockTemplate(function(error, result){
-		if(error) {
-			console.log(error);
-			console.log(result);
-			return;
-		}
-		if(result.prev_hash != current_prevhash) {
-			updateJob('lasthash updated');
-		}
-	});
-}
-
-setInterval(function(){ checkheight()}, 250);
-setInterval(function(){ checklasthash()}, 1000);
-
 function Miner(id,socket){
 	this.socket = socket;
 	this.login = '';
@@ -263,7 +223,7 @@ function handleClient(data,miner){
 			miner.login = miner.login.substr(0, fixedDiff);
 		}
 		logger.info('miner connect '+request.params.login+' ('+request.params.agent+') ('+miner.difficulty+')');
-		response = '{"id":"'+request.id+'","jsonrpc":"2.0","method":"login","result":"ok","error":null}';
+		response = '{"id":"'+request.id+'","jsonrpc":"2.0","method":"login","result":"ok"}';
 	}
 	else if(request && request.method && request.method == "submit") {
 
@@ -281,7 +241,7 @@ function handleClient(data,miner){
 		if(current_height != request.params.height){
 
 			logger.info('outdated');
-			response = '{"id":"'+request.id+'","jsonrpc":"2.0","method":"submit","result":null,"error":{code: -32503, message: "outdated"}}';
+			response = '{"id":"'+request.id+'","jsonrpc":"2.0","method":"submit","result":"stale"}';
 			response  = response+"\n"+'{"id":"Stratum","jsonrpc":"2.0","method":"getjobtemplate","result":{"difficulty":'+miner.difficulty+',"height":'+current_height+',"job_id":'+seq()+',"pre_pow":"'+ current_hashblob +'"},"error":null}';
 		}
 		else if(proof){
@@ -300,7 +260,7 @@ function handleClient(data,miner){
 		
 			if(check_diff(current_target,cycle)) {
 				
-				response = '{"id":"'+request.id+'","jsonrpc":"2.0","method":"submit","result":"ok","error":null}';
+				response = '{"id":"'+request.id+'","jsonrpc":"2.0","method":"submit","result":"ok"}';
 				logger.info('share ('+miner.login+') '+current_target+' (block) ('+hashrate(miner)+')');
 				
 				var block = Buffer.from(current_blob, 'hex');
@@ -316,7 +276,7 @@ function handleClient(data,miner){
 			}
 			else if(check_diff(miner.difficulty,cycle)) {
 				
-				response = '{"id":"'+request.id+'","jsonrpc":"2.0","method":"submit","result":"ok","error":null}';
+				response = '{"id":"'+request.id+'","jsonrpc":"2.0","method":"submit","result":"ok"}';
 				logger.info('share ('+miner.login+') '+miner.difficulty+' ('+hashrate(miner)+')');
 			
 			}
