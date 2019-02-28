@@ -37,7 +37,7 @@ function seq(){
 };
 
 const logger = winston.createLogger({
-	level: 'warn',
+	level: 'debug',
 	format: winston.format.combine(
 		winston.format.timestamp(),
 		winston.format.colorize(),
