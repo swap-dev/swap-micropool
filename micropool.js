@@ -10,7 +10,7 @@
 var config = { 
 
 	poolport:14650, 
-	ctrlport:14651,
+	ctrlport:14651,// use with https://github.com/swap-dev/on-block-notify.git
 
 	//daemonport:29950,
 	daemonport:39950,
@@ -127,7 +127,6 @@ var current_target   = 0;
 var current_height   = 1;
 var current_blob     = "";
 var current_hashblob = "";
-var current_fork     = 0;
 var current_prevhash = "";
 var connectedMiners = {};
 
@@ -165,8 +164,6 @@ function updateJob(reason,callback){
 		
 
 		if(previous_hash != current_prevhash){
-
-			if(Buffer.from(result.blocktemplate_blob, 'hex')[0] >= 10){ current_fork=7 }else{ current_fork = 0 };
 
 			current_prevhash = previous_hash;
 			current_target = result.difficulty;
@@ -277,25 +274,16 @@ function handleClient(data,miner){
 	}
 	else if(request && request.method && request.method == "submit") {
 
-		var proof;
-		if (current_fork==7){
-
-			var noncebuffer = Buffer.alloc(4);
-			noncebuffer.writeUInt32BE(request.params.nonce,0);
-
-			var header = Buffer.concat([Buffer.from(current_hashblob, 'hex'),noncebuffer]);
-
-			var cycle = Buffer.alloc(32*4);
-			for(var i in request.params.pow)
-			{
-				cycle.writeUInt32LE(request.params.pow[i], i*4);
-			}
-			proof = verify_c29s(header,header.length,cycle);
-
+		var noncebuffer = Buffer.alloc(4);
+		noncebuffer.writeUInt32BE(request.params.nonce,0);
+		var header = Buffer.concat([Buffer.from(current_hashblob, 'hex'),noncebuffer]);
+		var cycle = Buffer.alloc(32*4);
+		for(var i in request.params.pow)
+		{
+			cycle.writeUInt32LE(request.params.pow[i], i*4);
 		}
-		else{
-			logger.error('swap1 not supported');
-		}
+		
+		var proof = verify_c29s(header,header.length,cycle);
 			
 		if(current_height != request.params.height){
 
@@ -374,4 +362,8 @@ updateJob('init',function(){
 	logger.info("start swap micropool, port %d", config.poolport);
 
 });
+
+setInterval(function(){
+	updateJob('timer');
+}, 100);
 
