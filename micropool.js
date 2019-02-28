@@ -37,7 +37,7 @@ function seq(){
 };
 
 const logger = winston.createLogger({
-	level: 'debug',
+	level: 'info',
 	format: winston.format.combine(
 		winston.format.timestamp(),
 		winston.format.colorize(),
@@ -179,7 +179,7 @@ function updateJob(reason,callback){
 			for (var minerId in connectedMiners){
 				var miner = connectedMiners[minerId];
 				miner.nonces = [];
-				var response2 = '{"id":"Stratum","jsonrpc":"2.0","method":"getjobtemplate","result":{"difficulty":'+miner.difficulty+',"height":'+current_height+',"job_id":0,"pre_pow":"'+ result.blockhashing_blob +'"},"error":null}';
+				var response2 = '{"id":"Stratum","jsonrpc":"2.0","method":"getjobtemplate","result":{"difficulty":'+miner.difficulty+',"height":'+current_height+',"job_id":'+seq()+',"pre_pow":"'+ result.blockhashing_blob +'"},"error":null}';
 				miner.socket.write(response2+"\n");
 			}
 		}
@@ -237,7 +237,7 @@ function Miner(id,socket){
 				handleClient(data,client);
 		}
 		catch(e){
-			logger.debug("error: "+e+" on data: "+data);
+			logger.debug("error: "+e+" on data: "+input);
 			socket.end();
 		}
 	});
@@ -300,7 +300,7 @@ function handleClient(data,miner){
 
 			logger.info('outdated');
 			response = '{"id":"'+request.id+'","jsonrpc":"2.0","method":"submit","result":null,"error":{code: -32503, message: "outdated"}}';
-			response  = response+"\n"+'{"id":"Stratum","jsonrpc":"2.0","method":"getjobtemplate","result":{"difficulty":'+miner.difficulty+',"height":'+current_height+',"job_id":0,"pre_pow":"'+ current_hashblob +'"},"error":null}';
+			response  = response+"\n"+'{"id":"Stratum","jsonrpc":"2.0","method":"getjobtemplate","result":{"difficulty":'+miner.difficulty+',"height":'+current_height+',"job_id":'+seq()+',"pre_pow":"'+ current_hashblob +'"},"error":null}';
 		}
 		else if(proof){
 
@@ -346,7 +346,7 @@ function handleClient(data,miner){
 		}
 		
 	}else{
-		response = '{"id":"'+request.id+'","jsonrpc":"2.0","method":"getjobtemplate","result":{"difficulty":'+miner.difficulty+',"height":'+current_height+',"job_id":0,"pre_pow":"'+ current_hashblob +'"},"error":null}';
+		response = '{"id":"'+request.id+'","jsonrpc":"2.0","method":"getjobtemplate","result":{"difficulty":'+miner.difficulty+',"height":'+current_height+',"job_id":'+seq()+',"pre_pow":"'+ current_hashblob +'"},"error":null}';
 	
 	}
 
