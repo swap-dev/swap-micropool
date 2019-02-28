@@ -309,7 +309,7 @@ function handleClient(data,miner){
 			response = '{"id":"'+request.id+'","jsonrpc":"2.0","method":"submit","result":null,"error":{code: -32502, message: "wrong hash"}}';
 		
 		} 
-		else if(! nonceCheck(miner,request.params.nonce)) {
+		else if(! nonceCheck(miner,request.params.pow.join('.'))) {
 		
 			logger.info('duplicate ('+miner.login+')');
 			response = '{"id":"'+request.id+'","jsonrpc":"2.0","method":"submit","result":null,"error":{code: -32503, message: "duplicate"}}';
