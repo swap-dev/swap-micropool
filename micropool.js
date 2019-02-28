@@ -274,14 +274,14 @@ function handleClient(data,miner){
 		if (current_fork==7){
 
 			var noncebuffer = Buffer.alloc(4);
-			noncebuffer.writeInt32BE(request.params.nonce,0);
+			noncebuffer.writeUInt32BE(request.params.nonce,0);
 
 			var header = Buffer.concat([Buffer.from(current_hashblob, 'hex'),noncebuffer]);
 
 			var cycle = Buffer.alloc(32*4);
 			for(var i in request.params.pow)
 			{
-				cycle.writeInt32LE(request.params.pow[i], i*4);
+				cycle.writeUInt32LE(request.params.pow[i], i*4);
 			}
 			proof = verify_c29s(header,header.length,cycle);
 
@@ -318,9 +318,9 @@ function handleClient(data,miner){
 				var block = Buffer.from(current_blob, 'hex');
 				for(var i in request.params.pow)
 				{
-					block.writeInt32LE(request.params.pow[i], 43+(i*4));
+					block.writeUInt32LE(request.params.pow[i], 43+(i*4));
 				}
-				block.writeInt32LE(request.params.nonce,39);
+				block.writeUInt32LE(request.params.nonce,39);
 
 				rpc('submitblock', [block.toString('hex')], function(error, result){
 					updateJob('found block');
