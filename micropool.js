@@ -108,12 +108,13 @@ function getBlockTemplate(callback){
 	rpc('getblocktemplate', {reserve_size: 0, wallet_address: config.mining_address}, callback);
 }
 
-var current_target   = 0;
-var current_height   = 1;
-var current_blob     = "";
-var current_hashblob = "";
-var current_prevhash = "";
-var connectedMiners = {};
+var current_target    = 0;
+var current_height    = 1;
+var current_blob      = "";
+var current_hashblob  = "";
+var previous_hashblob = "";
+var current_prevhash  = "";
+var connectedMiners   = {};
 
 function nonceCheck(miner,nonce) {
 
@@ -153,6 +154,7 @@ function updateJob(reason,callback){
 			current_prevhash = previous_hash;
 			current_target = result.difficulty;
 			current_blob = result.blocktemplate_blob;
+			previous_hashblob = current_hashblob;
 			current_hashblob = result.blockhashing_blob;
 			current_height=result.height;
 
@@ -162,6 +164,7 @@ function updateJob(reason,callback){
 				var miner = connectedMiners[minerId];
 				miner.nonces = [];
 				var response2 = '{"id":"Stratum","jsonrpc":"2.0","method":"getjobtemplate","result":{"difficulty":'+miner.difficulty+',"height":'+current_height+',"job_id":'+seq()+',"pre_pow":"'+ result.blockhashing_blob +'"},"error":null}';
+				//setTimeout(function(){ miner.socket.write(response2+"\n")},5000);
 				miner.socket.write(response2+"\n");
 			}
 		}
@@ -187,7 +190,7 @@ function Miner(id,socket){
 				handleClient(data,client);
 		}
 		catch(e){
-			logger.debug("error: "+e+" on data: "+input);
+			logger.error("error: "+e+" on data: "+input);
 			socket.end();
 		}
 	});
@@ -201,6 +204,18 @@ function Miner(id,socket){
 	socket.on('error', function(had_error) {
 		socket.end();
 	});
+}
+Miner.prototype.respose = function (result,error,request) {
+	
+	var response = JSON.stringify({
+			id:request.id.toString(),
+			jsonrpc:"2.0",
+			method:request.method,
+			result: (result?result:null),
+			error: (error?error:null)
+	});
+	logger.debug("p->m "+response);
+	this.socket.write(response+"\n");
 }
 	
 function handleClient(data,miner){
@@ -223,78 +238,86 @@ function handleClient(data,miner){
 			miner.login = miner.login.substr(0, fixedDiff);
 		}
 		logger.info('miner connect '+request.params.login+' ('+request.params.agent+') ('+miner.difficulty+')');
-		response = '{"id":"'+request.id+'","jsonrpc":"2.0","method":"login","result":"ok"}';
+		return miner.respose('ok',null,request);
 	}
-	else if(request && request.method && request.method == "submit") {
+	
+	if(request && request.method && request.method == "submit") {
 
-		var noncebuffer = Buffer.alloc(4);
-		noncebuffer.writeUInt32BE(request.params.nonce,0);
-		var header = Buffer.concat([Buffer.from(current_hashblob, 'hex'),noncebuffer]);
-		var cycle = Buffer.alloc(32*4);
+		if(!request.params || !request.params.job_id || !request.params.pow || !request.params.nonce || request.params.pow.length != 32) {
+
+			logger.info('bad data ('+miner.login+')');
+			return miner.respose(null,{code: -32502, message: "wrong hash"},request);
+		}
+		
+		if(! nonceCheck(miner,request.params.pow.join('.'))) {
+		
+			logger.info('duplicate ('+miner.login+')');
+			return miner.respose(null,{code: -32503, message: "duplicate"},request);
+		}
+		
+		var cycle = Buffer.allocUnsafe(request.params.pow.length*4);
 		for(var i in request.params.pow)
 		{
 			cycle.writeUInt32LE(request.params.pow[i], i*4);
 		}
-		
-		var proof = verify_c29s(header,header.length,cycle);
+		var noncebuffer = Buffer.allocUnsafe(4);
+		noncebuffer.writeUInt32BE(request.params.nonce,0);
+		var header = Buffer.concat([Buffer.from(current_hashblob, 'hex'),noncebuffer]);
 			
-		if(current_height != request.params.height){
+		if(verify_c29s(header,header.length,cycle)){
 
-			logger.info('outdated');
-			response = '{"id":"'+request.id+'","jsonrpc":"2.0","method":"submit","result":"stale"}';
-			response  = response+"\n"+'{"id":"Stratum","jsonrpc":"2.0","method":"getjobtemplate","result":{"difficulty":'+miner.difficulty+',"height":'+current_height+',"job_id":'+seq()+',"pre_pow":"'+ current_hashblob +'"},"error":null}';
-		}
-		else if(proof){
-
-			logger.info('wrong hash ('+miner.login+') '+proof);
-			response = '{"id":"'+request.id+'","jsonrpc":"2.0","method":"submit","result":null,"error":{code: -32502, message: "wrong hash"}}';
-		
-		} 
-		else if(! nonceCheck(miner,request.params.pow.join('.'))) {
-		
-			logger.info('duplicate ('+miner.login+')');
-			response = '{"id":"'+request.id+'","jsonrpc":"2.0","method":"submit","result":null,"error":{code: -32503, message: "duplicate"}}';
-		
-		}
-		else{
-		
-			if(check_diff(current_target,cycle)) {
-				
-				response = '{"id":"'+request.id+'","jsonrpc":"2.0","method":"submit","result":"ok"}';
-				logger.info('share ('+miner.login+') '+current_target+' (block) ('+hashrate(miner)+')');
-				
-				var block = Buffer.from(current_blob, 'hex');
-				for(var i in request.params.pow)
-				{
-					block.writeUInt32LE(request.params.pow[i], 43+(i*4));
-				}
-				block.writeUInt32LE(request.params.nonce,39);
-
-				rpc('submitblock', [block.toString('hex')], function(error, result){
-					updateJob('found block');
-				});
-			}
-			else if(check_diff(miner.difficulty,cycle)) {
-				
-				response = '{"id":"'+request.id+'","jsonrpc":"2.0","method":"submit","result":"ok"}';
-				logger.info('share ('+miner.login+') '+miner.difficulty+' ('+hashrate(miner)+')');
+			var header_previous = Buffer.concat([Buffer.from(previous_hashblob, 'hex'),noncebuffer]);
 			
+			if(verify_c29s(header_previous,header_previous.length,cycle)){
+
+				logger.info('stale ('+miner.login+')');
+				return miner.respose('stale',null,request);
 			}
 			else{
 
-				response = '{"id":"'+request.id+'","jsonrpc":"2.0","method":"submit","result":null,"error":{code: -32501, message: "low diff"}}';
-				logger.info('low diff ('+miner.login+') '+miner.difficulty);
+				logger.info('wrong hash or very old ('+miner.login+') '+request.params.height);
+				return miner.respose(null,{code: -32502, message: "wrong hash"},request);
 			}
 		}
 		
-	}else{
-		response = '{"id":"'+request.id+'","jsonrpc":"2.0","method":"getjobtemplate","result":{"difficulty":'+miner.difficulty+',"height":'+current_height+',"job_id":'+seq()+',"pre_pow":"'+ current_hashblob +'"},"error":null}';
+		if(check_diff(current_target,cycle)) {
+			
+			var block = Buffer.from(current_blob, 'hex');
+			for(var i in request.params.pow)
+			{
+				block.writeUInt32LE(request.params.pow[i], 43+(i*4));
+			}
+			block.writeUInt32LE(request.params.nonce,39);
+
+			rpc('submitblock', [block.toString('hex')], function(error, result){
+				logger.info('BLOCK ('+miner.login+')');
+				updateJob('found block');
+			});
+		}
+		
+		if(check_diff(miner.difficulty,cycle)) {
+				
+			logger.info('share ('+miner.login+') '+miner.difficulty+' ('+hashrate(miner)+')');
+			return miner.respose('ok',null,request);
+		}
+		else{
+
+			logger.info('low diff ('+miner.login+') '+miner.difficulty);
+			return miner.respose(null,{code: -32501, message: "low diff"},request);
+		}
+		
+	}
 	
+	if(request && request.method && request.method == "getjobtemplate") {
+		
+		return miner.respose({difficulty:parseFloat(miner.difficulty),height:current_height,job_id:parseFloat(seq()),pre_pow:current_hashblob},null,request);
+	}
+	else{
+
+		logger.info("unkonwn method: "+request.method);
 	}
 
-	miner.socket.write(response+"\n");
-	logger.debug("p->m "+response);
-};
+}
 
 var server = net.createServer(function (localsocket) {
 
